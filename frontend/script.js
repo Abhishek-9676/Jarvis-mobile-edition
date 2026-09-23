@@ -1,4 +1,142 @@
-} catch (err) {
+// ===== 1. API KEY (Safe: browser లో మాత్రమే) =====
+let API_KEY = localStorage.getItem("jarvis_key");
+
+if (!API_KEY) {
+    API_KEY = prompt("Enter your Gemini API Key:");
+
+    if (API_KEY) {
+        localStorage.setItem("jarvis_key", API_KEY);
+    }
+}
+
+
+// ===== 2. SMART MODELS (first one fails -> next one try) =====
+const MODELS = [
+    "gemini-3.6-flash",
+    "gemini-flash-latest"
+];
+
+
+// ===== 3. DOM ELEMENTS =====
+const chat = document.getElementById("chat");
+const input = document.getElementById("msg");
+const micBtn = document.getElementById("mic-btn");
+
+
+// ===== 4. GEMINI BRAIN (auto-fallback) =====
+async function callGemini(prompt) {
+
+    if (!API_KEY) {
+        throw new Error("Gemini API Key is missing.");
+    }
+
+    let lastErr;
+
+    for (const model of MODELS) {
+
+        try {
+
+            const res = await fetch(
+                "https://generativelanguage.googleapis.com/v1beta/models/" +
+                model +
+                ":generateContent?key=" +
+                encodeURIComponent(API_KEY),
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+
+                    body: JSON.stringify({
+                        contents: [
+                            {
+                                parts: [
+                                    {
+                                        text: prompt
+                                    }
+                                ]
+                            }
+                        ]
+                    })
+                }
+            );
+
+            const data = await res.json();
+
+            if (!res.ok || data.error) {
+
+                lastErr = new Error(
+                    data?.error?.message ||
+                    `HTTP ${res.status}: ${res.statusText}`
+                );
+
+                // Try next model for temporary/model errors
+                const status = data?.error?.status || "";
+
+                if (
+                    res.status === 429 ||
+                    res.status === 500 ||
+                    res.status === 503 ||
+                    status === "RESOURCE_EXHAUSTED" ||
+                    status === "UNAVAILABLE"
+                ) {
+                    continue;
+                }
+
+                throw lastErr;
+            }
+
+            const text =
+                data?.candidates?.[0]?.content?.parts
+                    ?.map(part => part.text || "")
+                    .join("")
+                    .trim();
+
+            if (!text) {
+                throw new Error("Gemini returned an empty response.");
+            }
+
+            return text;
+
+        } catch (err) {
+
+            lastErr = err;
+
+            // Try the next model
+            continue;
+        }
+    }
+
+    throw lastErr || new Error("Gemini request failed.");
+}
+
+
+// ===== 5. ASK GEMINI =====
+async function askGemini(prompt) {
+
+    add("J.A.R.V.I.S: Thinking...", "ai");
+
+    try {
+
+        const reply = await callGemini(prompt);
+
+        // Remove the temporary Thinking message
+        const messages = chat.querySelectorAll(".msg.ai");
+
+        if (messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+
+            if (lastMessage.innerText === "J.A.R.V.I.S: Thinking...") {
+                lastMessage.remove();
+            }
+        }
+
+        add("J.A.R.V.I.S: " + reply, "ai");
+
+        speak(reply);
+
+    } catch (err) {
 
         const messages = chat.querySelectorAll(".msg.ai");
 
@@ -52,7 +190,7 @@ if (SR) {
     rec.onend = () => {
 
         if (micBtn) {
-            micBtn.innerText = "🎤";
+            micBtn.innerText = "🎙️";
         }
     };
 
